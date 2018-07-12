@@ -1,0 +1,10 @@
+{
+    "id": "drone",
+    "type": "application",
+    "value": {
+        "description": "Example application created in the Getting Started guide",
+        "author": "John Doe",
+        "version": "1.0.0",
+        "language": "c"
+    }
+}

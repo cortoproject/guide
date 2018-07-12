@@ -1,0 +1,12 @@
+in drone
+
+class Drone {
+    latitude: float64
+    longitude: float64
+    altitude: float64
+
+    construct() int16
+    define()
+    validate() int16
+    update()
+}
