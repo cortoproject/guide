@@ -116,7 +116,7 @@ The most used functions for handling exceptions are:
 
 Let's look at a code example to see how they are used in practice:
 
-```
+```c
 int16_t divide (int num, int by, int *out)
 {
     if (by == 0) {
@@ -627,7 +627,7 @@ class Drone {
 ```
 Now rebuild the project. You will notice that a new file appears with the name `Drone.c`, which contains the empty function bodies for `define` and `update`:
 
-```
+```c
 void drone_Drone_define(
     drone_Drone this)
 {
@@ -742,4 +742,523 @@ Note that the `construct` method also has a return value. If we return a non-zer
 ### Wrapping up
 This concludes the first section of the getting started guide! You can get the example code of everything up to this section here: https://github.com/cortoproject/guide
 
-## Going data-centric
+
+## Going data centric
+[Become a data centric programmer]
+
+Object oriented programming (OOP) changed the way we write and organize code, so that we can write larger, more complex and more maintainable code. While not perfect, it has proven to be an extremely versatile and intuitive way to describe application behavior.
+
+When OOP is used for describing behavior *between* applications however, like with WSDL or CORBA, we run into some limitations. For one, when we invoke a method on an object, the object *must* be available. Inside an application that is a trivial requirement, but in a distributed system this results in a web of dependencies between services, and can make a system extremely fragile.
+
+Corto's goal is to provide a framework that can automatically synchronize objects between applications in a distributed system without requiring the application developer to be aware of how and when this takes place. For this, we had to invent a new way of writing and organizing code, one that fits better with how distributed systems work. We didn't want to get rid of OOP, as it is the devil we know, and there are many good ideas and concepts that don't need reinvention.
+
+When we designed corto, we therefore drew inspiration from object oriented programming, realtime distributed systems and, perhaps surprisingly, game engines. Game engines have long perfected the design patterns to build realtime virtual worlds, which is exactly what real-life autonomous applications need: build a virtual version of the real world, and use it to make quick decisions.
+
+We think that by taking the best parts from OOP, distributed systems and game engines, we too have perfected how to build seamless distributed applications to a point where it is easy enough for any developer, and powerful enough to build complex distributed systems. We call this new paradigm **data centric programming**. Ready to see what it's all about? Let's get **data centric**!
+
+### Modeling data, revisited
+Every data centric application starts with a data model. A data model is how we describe the part of the world that is relevant to our application. For example, if our application is a self driving vehicle, we will want to model things like a map, pedestrians, other vehicles and so on.
+
+Because the world is an intricate place, we invested a lot of time into designing a type system that lets us model anything from the real world in high fidelity, while not being overly complex or constraining. Lets take a closer look at the different aspects of the type system.
+
+#### Meta types
+In corto, types are just like regular objects. Regular objects, as we've seen before, have a type, like the `Drone` type of our `my_drone` object. If types are objects, this means that types also must have a type. We call the "type of a type" a **meta type**, and they are the fabric of the corto type system.
+
+An example of a meta type is `struct`. Struct is a type that, when instantiated, creates another type. Take this example:
+
+```corto
+struct Point {
+    x, y: int32
+}
+```
+This creates a new type called `Point`. The type of `Point` is `struct`. We can now use `Point` to create a new object:
+
+```corto
+Point my_point = {x:10, y:20}
+```
+The `my_point` object is not a type. If we try to do this, we get an error:
+
+```corto
+my_point my_obj = {x:10, y:20}
+```
+
+```demo
+error model.corto:9:1 object '/my_point' is not a type
+```
+
+That is because the instances of `Point` are not types, they are regular objects. `Point` is a regular type, *not* a meta type.
+
+The type system is Corto's most powerful tool. Understanding the meta type - type - object relationship is the first step towards unleashing that power.
+
+#### Reference types
+The corto type system differentiates between *value types* and *reference types*. They are implemented in a way that is comparable to C#. A variable of a reference type contains a reference to an object, whereas a value type contains the value itself. To see how they are different, lets create a `model.corto` file with the following types:
+
+```corto
+struct Point {
+    x, y: int32
+}
+
+struct Line {
+    start, stop: Point
+}
+
+Point point_1: 10, 20
+Point point_2: 30, 40
+Line my_line = {point_1, point_2}
+```
+Lets take a closer look at how this code is interpreted. For this, we will open the **corto shell**. This is a command-line utility that lets us browse the object store. To start the shell with our model, run:
+
+```demo
+corto sh model.corto
+```
+To inspect the `my_line` object, simply type `my_line` in the shell. You should see the following output:
+
+```demo
+< / > my_line
+name:         my_line
+parent:       /
+owner:        <this>
+state:        valid
+attributes:   named|writable|observable|persistent
+type:         /Line
+value:        {start:{x:10, y:20}, stop:{x:30, y:40}}
+```
+The value is the interesting part. We can see that the values of the two point objects are now part of the value of the line object. Now lets see what happens if we change the definition of `Point` to a class:
+
+```corto
+class Point {
+    x, y: int32
+}
+```
+Lets see what `my_line` now looks like when we reload it. Exit the shell with the `exit` command, and restart it with the same command. The `my_line` object now looks like this:
+
+```demo
+< / > my_line
+name:         my_line
+parent:       /
+owner:        <this>
+state:        valid
+attributes:   named|writable|observable|persistent
+type:         /Line
+value:        {start:/point_1, stop:/point_2}
+```
+Note that now the value of `point_1` and `point_2` are *not* part of `my_line`! Instead, `my_line` contains references to the `point_1` and `point_2` objects. This is similar to object references in Java or C#, or a pointer in C.
+
+A few examples of built-in reference (meta) types are:
+
+- interface
+- class
+- procedure
+- object
+
+All built-in primitive and collection types are by default value types. The corto type system does however let you create your own types using meta-types. This way, you can for example create your own primitive reference type. Consider the following code:
+
+```corto
+int i32_ref: width_32, reference: true
+
+struct Point {
+    x, y: i32_ref
+}
+
+i32_ref a: 10
+i32_ref b: 20
+Point my_point = {a, b}
+```
+If we inspect the value of `my_point` in the shell, we will see this:
+
+```demo
+< / > my_point
+name:         my_point
+parent:       /
+owner:        <this>
+state:        valid
+attributes:   named|writable|observable|persistent
+type:         /Point
+value:        {start:/a, stop:/b}
+```
+If we replace `i32_ref` in the `Point` type with the built-in value type `int32` the value looks like this:
+
+```demo
+value:        {start:10, stop:20}
+```
+
+#### Void types
+The void type is used for objects that have no values. A typical use of a `void` type is when creating a container for child objects:
+
+```corto
+void parent {
+    int32 child_1: 10
+    int32 child_2: 20
+}
+```
+Another use of the `void` type is for procedure objects that have no return value. This is an example of a function with a void return type:
+
+```corto
+print(string message) void
+```
+
+A special use for a `void` type is a *void reference*. Void reference types describe values that can contain any type of object. The builtin `object` type is an example of a void reference type. This is an example of how it can be used:
+
+```corto
+int32 my_int: 10
+object my_ref: my_int
+```
+If we inspect this object with the corto shell, we will see the following value:
+
+```demo
+value:        /my_int
+```
+
+#### Primitive types
+Primitive types represent the smallest unit of data that can be modeled. You cannot break up a primitive value into smaller parts without changing its meaning. Take for example the string "Hello World" and break it up into "Hello" and "World": the two separate strings no longer carry the same information as the full string.
+
+The primitive meta types are:
+
+Meta type | Value example | Description
+-----|---------|------------
+boolean | `true`, `false` | Boolean values
+binary | `0x10`, `0xFF` | Values that don't swap endianness when serialized
+character | `a`, `\0` | Single characters
+int | `-10`, `+10` | Signed integers
+uint | `10`, `20` | Unsigned integers
+float | `10.5`, `10e-1`, `-10.5` | Floating point
+text | `"Hello World"`, `null` | Bounded or unbounded strings
+enum | `Red`, `Blue` | Signed integer that is one of a list of constants
+bitmask | `0`, `Sunny`, `Sunny|Hot` | Unsigned integer that combines constants in a bitmask
+
+With these primitive **meta types** we can create our own primitive **types**. For example if we want to create a 32-bit signed integer, we can do this:
+
+```corto
+int i32: width_32
+```
+We can now use this type in a `.corto` file like this:
+
+```corto
+i32 my_int: 10
+```
+Or to create an object in our application code:
+
+```c
+int32_t *my_int = i32__create(data_o, "my_int", 10);
+```
+
+```note
+Notice the similarity in syntax between creating the i32 type, and the my_int object. In corto, types are also objects, and we use the same syntax to describe both types and objects!
+```
+
+Corto comes conveniently comes with a number of predefined primitive types:
+
+Meta type | Types
+-----|---------
+boolean | `bool`
+binary | `octet`, `word`
+character | `char`
+int | `int8`, `int16`, `int32`, `int64`
+uint | `uint8`, `uint16`, `uint32`, `uint64`
+float | `float32`, `float64`
+text | `string`
+
+You can use these types in a `.corto` file like this:
+
+```corto
+bool my_bool: true
+```
+Or to create an object in our application code:
+
+```c
+bool *my_bool = corto_bool__create(data_o, "my_bool", true);
+```
+
+```note
+Notice the "corto" prefix here. All builtin types are prefixed by "corto" to avoid name collisions. Types that you define in your applications and packages will be prefixed with the application or package name.
+```
+
+Enumerations and bitmasks are typically used directly to create new types, like this:
+
+```corto
+enum Color {
+    Red, Orange, Yellow, Green, Blue
+}
+
+bitmask Weather {
+    Sunny, Cloudy, Hot, Cold, Dry, Humid
+}
+
+Color my_color: Yellow
+Weather my_weather: Sunny | Humid
+```
+
+#### Composite types
+Composite types can be composed out of other types. We've already seen some examples of composite types, like the `struct` and `class` type. Each composite type contains a list of members, which have an identifier, and the member type. There are a number of composite meta types in corto:
+
+Meta type | Description
+----------|------------
+interface | Reference type for describing abstract interfaces
+struct    | Value type that describes composite value.
+class     | Reference type that describes reference composite objects.
+union     | Value type that can change at runtime
+procedure | Reference type that describes types for callable objects (functions)
+
+##### Interface
+An interface is used to describe an abstract interface. Interfaces can only contain overridable methods. Interfaces are not directly instantiated but instead can be implemented by a class. A variable of an interface type may contain a reference of an object of a type that implements the interface. Consider this example:
+
+```corto
+interface Vehicle {
+    move(int32 x, int32 y)
+}
+
+class Car: implements:[Vehicle] {
+    move(int32 x, int32 y)
+}
+
+Car my_car = {}
+
+// Valid, because Car implements Vehicle
+Vehicle my_vehicle: my_car
+```
+
+##### Struct
+A struct is a composite value type. Structs can have both members and methods as shown in this snippet:
+
+```corto
+struct Point {
+    x: int32
+    y: int32
+
+    add(Point p)
+}
+```
+
+##### Class
+A class is a composite reference type. It inherits the same capabilities from a struct, but in addition supports implementing interfaces and lifecycle hooks, as shown in this snippet:
+
+```corto
+class Car: implements:[Vehicle] {
+    lat: float64
+    long: float64
+
+    construct() int16
+    destruct()
+
+    move(int32 x, int32 y)
+}
+```
+The reason that lifecycle hooks are only implemented on classes and not on structs, is because a class instance is *guaranteed* to be an object (it is a reference type). Because structs are value types, corto doesn't know whether a value is an object, and thus lifecycle hooks do not apply.
+
+##### Union
+A union is a composite type where only one of the members (or "cases") is "active" at any point in time. Union values can change which member is active at runtime. Unions only occupy as much memory as the size of their largest member. Here is an example of a union:
+
+```corto
+union Value: int32 {
+    int: [0], int64
+    flt: [1], float64
+    str: [2, 3], string
+    default other: bool
+}
+```
+Each union value has a discriminator value which must be of an integer or enumeration type. The discriminator value determines which field is active. A union case has a type and a list of discriminator values that apply to the case. In the above example, the type is `int64` when the discriminator is `0`, `float64` when it is `1` etc. The `str` field demonstrates how it is possible to associate multiple discriminators with a case.
+
+If the discriminator does not any of the values associated with any of the cases, the default case is selected. If a union does not have a default case, the value is invalid.
+
+##### Procedure
+A procedure is a special kind of meta type that is used to create callable objects (functions). Corto comes with a number of builtin procedure types:
+
+- function
+- method
+- overridable
+- override
+- remote
+- observer
+- subscriber
+
+These types are all instances of the `procedure` meta type. Instances of these types all have in common that they have an argument list and a return type. The argument list is part of the object identifier, which allows procedures to be overloaded.
+
+You can implement your own procedure types, which lets you override how function parameters are derived and leverage Corto's code generators, but this is an advanced topic that we will cover at a later point in time.
+
+#### Collection types
+Collection types describe sets of values that all are instances of the same type. Collections can be either bounded or unbounded. Values inside a collection are called elements. Elements can either be identified by a key or an index. A key can be any primitive type. An index must be a positive integer lower than the total element count of a collection value.
+
+Corto supports the following collection meta types (more may be added in the future):
+
+- array
+- sequence
+- list
+- map
+
+The first three types (`array`, `sequence`, `list`) are ordered collection types that are indexed by an integer. The difference between these three is how they can grow, and how they are stored. The `map` type lets the application decide how values are indexed.
+
+##### Array
+An array is a fixed-size collection that is allocated as a single block of memory. Arrays feature fast O(1) lookups and are very memory efficient.
+
+```corto
+array[int32, 3] my_array = [10, 20, 30]
+```
+The equivalent C type of this array is `int32_t*`. You can iterate through an array like this:
+
+```c
+int i;
+for (i = 0; i < 3; i ++) {
+    printf("element = %d\n", my_array_o[i]);
+}
+```
+
+##### Sequence
+Sequences are similar to arrays in that they are single blocks of memory that have fast O(1) lookups, but contrary to arrays, sequences can be of dynamic size. Sequences also require an extra indirection which makes them slightly less efficient than arrays. Resizing sequences is possible, but is an expensive operation where potentially all elements have to be copied to a new block of memory.
+
+```corto
+sequence[int32] my_sequence = [10, 20, 30]
+```
+The equivalent C type of a sequence is a struct with a `length` and a `buffer` member. The buffer member has the same type as an array of the same element type would have. For this sequence, the buffer type would be `int32_t*`. An application can iterate through a sequence value like this:
+
+```c
+int i;
+for (i = 0; i < my_sequence_o->length; i ++) {
+    printf("element = %d\n", my_sequence_o->buffer[i]);
+}
+```
+
+##### List
+The list type is a linked list. It has an O(n) lookup (worst case) but is very fast when it comes to inserting, appending or removing elements. Lists are more efficient than sequences when you need to frequently add or remove elements.
+
+```corto
+list[int32] my_list = [10, 20, 30]
+```
+The equivalent C type of a linked list is `corto_ll`. You can iterate through a linked list like this:
+
+```c
+corto_iter it = corto_ll_iter(my_list_o);
+while (corto_iter_hasNext(&it)) {
+    printf("element = %d\n", (uintptr_t)corto_iter_next(&it));
+}
+```
+Note that the return type of `corto_iter_next` is casted to `uintptr_t`. This is because the function returns a `void*`. Because the `int32` type is guaranteed to fit in a pointer-sized variable on any 32bit and 64bit architecture, corto does not allocate memory for the element, for efficiency reasons.
+
+All 32-bit (or smaller) primitive values are stored in a linked list like this. 64 bit values require an extra allocation, even on 64 bit platforms. Composite and collection element types always require an allocation, even if their size is smaller than 64 bit.
+
+Here is another example, but now with the composite type `Point`:
+
+```c
+corto_iter it = corto_ll_iter(my_list_o);
+while (corto_iter_hasNext(&it)) {
+    Point *p = corto_iter_next(&it);
+    printf("element = %d, %d\n", p->x, p->y);
+}
+```
+
+##### Map
+A map is a balanced tree which has a key type in addition to an element type. The entries in a map are key-value pairs, where every key in the map has to be unique. Corto uses a red-black tree for the implementation of maps, and has O(log n) complexity for insertion and deletion.
+
+```corto
+map[string, int32] my_map = ["foo": 10, "bar": 20, "hello": 30]
+```
+The equivalent C type of a map is `corto_rb`. Maps can be iterated over the same way as linked lists:
+
+```c
+corto_iter it = corto_rb_iter(my_map_o);
+while (corto_iter_hasNext(&it)) {
+    printf("element = %d\n", (uintptr_t)corto_iter_next(&it));
+}
+```
+The same rules with regards to storing elements of small primitive sizes that apply to linked lists also apply to maps.
+
+#### Iterator types
+Iterators let you iterate over a collection one element at a time. They are a first-class citizen of corto, and an important building block in making large amounts of data accessible to an application as iterators can be used to lazily evaluate elements in a collection.
+
+An iterator type can be used like this:
+
+```corto
+list[int32] my_list = [10, 20, 30]
+iterator[int32] my_iterator: my_list
+```
+The equivalent C type of an iterator is `corto_iter`. See the `list` and `map` examples for how to use the `corto_iter` type.
+
+You can implement your own iterators by implementing the `next` and `hasNext` callbacks of the `corto_iter` type. The C signatures of these functions are:
+
+```c
+void* next(corto_iter *iter);
+bool hasNext(corto_iter *iter);
+```
+The following example shows how to build an iterator that returns the first 50 numbers of the fibonacci sequence. Note how we do not store the full sequence in memory, but instead compute elements in the sequence as we are iterating:
+
+```c
+uint64_t fibo(uint64_t n) {
+    if (n == 0) return 0;
+    uint64_t previous = 0, current = 1, i;
+    for (i = 1; i < n; ++i) {
+        uint64_t next = previous + current;
+        previous = current;
+        current = next;
+    }
+    return current;
+}
+
+struct iter_data {
+    uint64_t current;
+    uint64_t value;
+};
+
+bool hasNext(corto_iter *iter) {
+    if (!iter->data) {
+        iter->data = corto_calloc(sizeof(struct iter_data));
+    }
+    struct iter_data *data = iter->data;
+    return data->current < 50; /* Just return the first 50 */
+}
+
+void* next(corto_iter *iter) {
+    struct iter_data *data = iter->data;
+    data->current ++;
+    data->value = fibo(data->current);
+    return &data->value;
+}
+
+void release(corto_iter *iter) {
+    /* Cleanup resources when done with iterating */
+    free(iter->data);
+}
+
+int cortomain(int argc, char *argv[]) {
+    corto_iter it = { .next = next, .hasNext = hasNext, .release = release };
+
+    while (corto_iter_hasNext(&it)) {
+        uintptr_t *v = corto_iter_next(&it);
+        printf("%lu\n", *v);
+    }
+
+    return 0;
+}
+```
+
+#### Any type
+The `any` type can be used to represent any kind of value. The type of the value may be changed at runtime. The type represents a type-value tuple, so that an application can at any point check what the current type of the any value is.
+
+The any type can be used like this:
+
+```corto
+any my_any: 20
+```
+The equivalent C type of an `any` type is a struct with  a `type` and a `value` member. A third `owned` member indicates whether the `any` value "owns" the embedded value, or whether this value is part of another object. If `owned` is false, cleaning up the `any` value will not attempt to free the value.
+
+```c
+struct corto_any {
+    corto_type type;
+    void *value;
+    bool owned;
+}
+```
+It can be used like this:
+
+```c
+corto_any my_any = {
+    .type = corto_int32_o,
+    .value = corto_ptr_new(corto_int32_o)
+    .owned = true
+}
+
+*(uint32_t*)my_any.value = 30;
+```
+To clean up the resources held by an any value, simply do:
+
+```c
+corto_ptr_deinit(&my_any, corto_any_o);
+```
