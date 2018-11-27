@@ -69,12 +69,13 @@ Each project has a `cortomain` function, which is located in the main file of ou
 ```c
 int cortomain(int argc, char *argv[]) {
     printf("My first corto application!\n");
+    return 0;
 }
 ```
 The next section shows how to build and run the project.
 
 ### Building and running a project
-To run this code, we need to rebuild the project. Corto uses a build system called **bake**, which is optimized for working with large numbers of small projects. To learn more about bake, [click here](https://www.corto.io/doc/bake.html). To build our project, simply enter this command:
+To run this code, we need to rebuild the project. Corto uses a build system called **bake**, which is optimized for working with large numbers of small projects. To learn more about bake, [click here](https://www.corto.io/doc/bake.html). To build our project, simply enter this command from the `drone` directory:
 
 ```demo
 bake
@@ -144,6 +145,8 @@ Copy this into `main.c` and run the application. You should see the following ou
 ```demo
 error src/main.c:7 cannot divide 10 by zero!
 from  src/main.c:21 failed to call divide
+error  platform/src/proc.c:143 process 45010 exited with returncode -1
+ from  src/run.c:677 process returned -1
 ```
 When the `divide` function failed, `corto_try` automatically jumped to the `error` label. The line with `corto_try` is actually shorthand for:
 
@@ -190,10 +193,10 @@ corto_log_pop();
 When you run it, you should see this:
 
 ```demo
-dividing 10 by 2
-divide
-|  result = 5
-+  
+info   dividing 10 by 2
+       divide
+info   |  result = 5
+       + 
 ```
 As you can see, the tracing inside the `push`-`pop` added indentation to the log. This neat visual aid often makes it easy to add context to a trace and can make applications a lot easier to debug!
 
@@ -336,14 +339,11 @@ The "*" is necessary here because my_obj is a pointer variable. We don't want to
 Think of objects in corto like something that represents the real world, like a "digital twin". Usually such objects are much more complicated than just a single integer. To create objects that represent more complex things, you will have to create a *data model*.
 
 ### Modeling data
-Corto has an flexible data modeling framework that lets you model everything from very simple to very complicated objects. To model our drone, we will create a `Drone` class with `longitude`, `latitude` and `altitude` members. To create this model, open up the `model.corto` file in your project. The contents of this file currently look like this:
+Corto has an flexible data modeling framework that lets you model everything from very simple to very complicated objects. To model our drone, we will create a `Drone` class with `longitude`, `latitude` and `altitude` members. To create this model, open up the `model.corto` file in your project. To add our class, change `model.corto` so it looks like this:
 
 ```corto
 in drone
-```
-This indicates that everything in this file will be part of our `drone` application. To add our class, append the following code to `model.corto`:
 
-```corto
 class Drone {
     latitude: float64
     longitude: float64
@@ -445,9 +445,11 @@ corto.rest.service config.rest = {
     endpoint: "api"
 }
 ```
-Notice the "endpoint" member? That will make our REST API available under URL http://locahost:9090/api. Restart our application again, and go to http://localhost:9090. You should now see the following UI:
+Notice the "endpoint" member? That will make our REST API available under URL http://locahost:9090/api. Restart our application again, and go to http://localhost:9090. You should now see the following UI (after you restarted the application):
 
 ![UI screenshot](ui_screenshot.png)
+
+If you instead see a list of packages, click on the compass icon in the top left corner. This takes you to the data scope, where we created our object.
 
 The UI correctly shows that we have one object of type `Drone`, with id `my_drone`. It also shows us the current value of the object. Keep the UI open as it will be useful for showing what happens in the next section!
 
@@ -508,9 +510,9 @@ void on_event(corto_observer_event *event) {
 The code should now output:
 
 ```demo
-event received from my_drone, value = 1.000000
-event received from my_drone, value = 2.000000
-event received from my_drone, value = 3.000000
+event received from my_drone, altitude = 1.000000
+event received from my_drone, altitude = 2.000000
+event received from my_drone, altitude = 3.000000
 ...
 ```
 
@@ -553,7 +555,12 @@ event received from my_2nd_drone, value = 4.000000
 ```
 
 ### More observable events
-Observers can receive more than just update events. Other possible events are `CORTO_DEFINE` (a new object is created) and `CORTO_DELETE` (an object has been deleted). Add `CORTO_DEFINE` to the observer *event mask* with the or (`|`) operator so that it looks like this: `CORTO_DEFINE|CORTO_UPDATE|CORTO_ON_SCOPE` (the order doesn't matter).
+Observers can receive more than just update events. Other possible events are `CORTO_DEFINE` (a new object is created) and `CORTO_DELETE` (an object has been deleted). Add `CORTO_DEFINE` to the observer *event mask* with the or (`|`) operator so that it looks like this (the order doesn't matter): 
+
+```
+corto_observe(CORTO_DEFINE|CORTO_UPDATE|CORTO_ON_SCOPE, data_o)
+    .callback(on_event);
+```
 
 When we run this code, it should produce the following output
 
@@ -599,7 +606,7 @@ Did you notice that the observer received "define" events, even though it is cre
 Sometimes a scope contains objects of many different types, and we want to only observe objects of a specific type. We can do this by simply adding a type filter to our observer. Change the line that creates the observer to this:
 
 ```c
-corto_observe(CORTO_UPDATE, my_drone)
+corto_observe(CORTO_UPDATE, data_o)
     .type("drone/Drone")
     .callback(on_event);
 ```
@@ -711,7 +718,7 @@ int16_t drone_Drone_validate(
     drone_Drone this)
 {
     if (this->altitude < 0) {
-        printf("drone %s has an invalid altitude!", corto_idof(this));
+        printf("drone %s has an invalid altitude!\n", corto_idof(this));
         return -1;
     }
     return 0;
